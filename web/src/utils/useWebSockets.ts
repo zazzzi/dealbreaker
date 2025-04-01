@@ -1,65 +1,82 @@
 import { useEffect, useState, useCallback } from "react";
 
 interface Message {
-  text: string;
-  isSystem: boolean;
-  timestamp: number;
+	type: string;
+	data: any;
+	timestamp: number;
 }
 
-const useWebSocket = (roomId: string) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [socket, setSocket] = useState<WebSocket | null>(null);
-  const [connected, setConnected] = useState(false);
+const useWebSocket = (
+	roomId: string,
+	username: string,
+	intent: string,
+	onMessage?: (data: any) => void
+) => {
+	const [messages, setMessages] = useState<Message[]>([]);
+	const [socket, setSocket] = useState<WebSocket | null>(null);
+	const [connected, setConnected] = useState(false);
 
-  useEffect(() => {
-    // should be moved out of here!!!!
-    const ws = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
 
-    ws.onopen = () => {
-      console.log(`Connected to room: ${roomId}`);
-      setConnected(true);
-    };
+	useEffect(() => {
+		const ws = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
 
-    ws.onmessage = (event) => {
-      const messageText = event.data;
-      const isSystem = messageText.startsWith("System:");
-      
-      const newMessage: Message = {
-        text: messageText,
-        isSystem,
-        timestamp: Date.now()
-      };
-      
-      setMessages((prev) => [...prev, newMessage]);
-    };
 
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-      setConnected(false);
-    };
+		ws.onopen = () => {
+			console.log(`✅ Connected to room: ${roomId}`);
+			setConnected(true);
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
+			// Send initial USER_JOINED as first message
+			ws.send(
+				JSON.stringify({
+					type: "USER_JOINED",
+					username,
+					intent,
+				})
+			);
+		};
 
-    setSocket(ws);
+		ws.onmessage = (event) => {
+			try {
+				const parsed = JSON.parse(event.data);
+				setMessages((prev) => [
+					...prev,
+					{ type: parsed.type, data: parsed, timestamp: Date.now() },
+				]);
+				if (onMessage) onMessage(parsed);
+			} catch (err) {
+				console.error("WebSocket parse error:", err);
+			}
+		};
 
-    // Cleanup on unmount
-    return () => {
-      console.log("Closing WebSocket connection");
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-    };
-  }, [roomId]);
+		ws.onclose = () => {
+			console.log("❌ WebSocket disconnected");
+			setConnected(false);
+		};
 
-  const sendMessage = useCallback((message: string) => {
-    if (socket?.readyState === WebSocket.OPEN && message.trim()) {
-      socket.send(message);
-    }
-  }, [socket]);
+		ws.onerror = (error) => {
+			console.error("🔥 WebSocket error:", error);
+		};
 
-  return { messages, sendMessage, connected };
+		setSocket(ws);
+
+		return () => {
+			console.log("👋 Closing WebSocket");
+			ws.close();
+		};
+	}, [roomId, username, intent, onMessage]);
+
+	const sendMessage = useCallback(
+		(message: object) => {
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.send(JSON.stringify(message));
+			} else {
+				console.warn("WebSocket not ready — message not sent", message);
+			}
+		},
+		[socket]
+	);
+
+	return { messages, sendMessage, connected };
 };
 
 export default useWebSocket;
