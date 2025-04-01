@@ -1,11 +1,12 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict
+from typing import Dict, List
 from collections import defaultdict
 import random
 import asyncio
 import json
 import os
+import uuid
 
 app = FastAPI()
 
@@ -119,7 +120,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
         state = manager.room_states[room_id]
         if username not in state["players"]:
             state["players"].append(username)
-
         manager.save()
 
         for player, prompts in state["player_prompts"].items():
@@ -127,7 +127,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 await websocket.send_json({
                     "type": "PROMPT_RECEIVED",
                     "from": player,
-                    "count": 1,
                     "prompt": prompt
                 })
 
@@ -144,22 +143,54 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             if message_type == "NEW_PROMPTS":
                 prompts = data["prompts"]
                 room = manager.room_states[room_id]
-                room["player_prompts"].setdefault(username, []).extend(prompts)
-                manager.save()
+                room["player_prompts"].setdefault(username, [])
 
-                for prompt in prompts:
+                for text in prompts:
+                    prompt_obj = {
+                        "id": str(uuid.uuid4()),
+                        "text": text,
+                        "from": username
+                    }
+                    room["player_prompts"][username].append(prompt_obj)
+
                     await manager.broadcast(room_id, {
                         "type": "PROMPT_RECEIVED",
                         "from": username,
-                        "count": 1,
-                        "prompt": prompt
+                        "prompt": prompt_obj
+                    })
+
+                manager.save()
+
+            elif message_type == "DELETE_PROMPT":
+                prompt_id = data.get("promptId")
+                room = manager.room_states[room_id]
+                updated = False
+
+                if username in room["player_prompts"]:
+                    original = room["player_prompts"][username]
+                    new_prompts = [
+                        p for p in original
+                        if isinstance(p, dict) and p.get("id") != prompt_id
+                    ]
+
+                    if len(new_prompts) != len(original):
+                        updated = True
+                        if new_prompts:
+                            room["player_prompts"][username] = new_prompts
+                        else:
+                            del room["player_prompts"][username]
+
+                if updated:
+                    manager.save()
+                    await manager.broadcast(room_id, {
+                        "type": "PROMPT_DELETED",
+                        "promptId": prompt_id
                     })
 
             elif message_type == "PLAYER_READY":
                 room = manager.room_states[room_id]
                 if username not in room["ready_players"]:
                     room["ready_players"].append(username)
-
                 manager.save()
 
                 if set(room["players"]) == set(room["ready_players"]):

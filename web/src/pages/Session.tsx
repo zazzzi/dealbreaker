@@ -1,28 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { v4 as uuidv4 } from "uuid";
+
 import toast from "react-hot-toast";
 import useWebSocket from "../utils/useWebSockets";
 import Button from "../components/ui/button";
 
+interface Prompt {
+	id: string;
+	text: string;
+	from: string;
+}
+
 const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 	const { roomId: urlRoomId } = useParams();
+	const roomId = urlRoomId || propRoomId;
+	const navigate = useNavigate();
+
 	const [roomInfo, setRoomInfo] = useState<{
 		players: string[];
 		currentTurn: string | null;
 	} | null>(null);
 
-	const roomId = urlRoomId || propRoomId;
-	const navigate = useNavigate();
-
-	interface Prompt {
-		id: string;
-		text: string;
-		from: string;
-	}
-
 	const [searchParams, setSearchParams] = useSearchParams();
 	const [intent, setIntent] = useState(searchParams.get("intent") || "join");
-
 	const username = searchParams.get("username") || "Anonymous";
 
 	const handleIncomingMessage = useCallback(
@@ -35,30 +36,42 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 				console.log("Everyone is ready!");
 			}
 			if (msg.type === "PROMPT_RECEIVED") {
-				const from = msg.from;
-				const prompts: string[] = msg.prompts || [];
+				const prompt = msg.prompt;
 
-				const withIds = prompts.map((text: string) => ({
-					id: Date.now().toString() + Math.random(),
-					text,
-					from,
-				}));
+				if (!prompt?.id || !prompt?.text || !prompt?.from) return;
 
-				setAllSubmittedPrompts((prev) => [...prev, ...withIds]);
+				const promptObj: Prompt = {
+					id: prompt.id,
+					text: prompt.text,
+					from: prompt.from,
+				};
+
+				setAllSubmittedPrompts((prev) => [...prev, promptObj]);
+
+				if (prompt.from === username) {
+					setMyPrompts((prev) => [...prev, promptObj]);
+				}
 			}
+
 			if (msg.type === "EXISTING_PROMPTS") {
 				const received = msg.prompts.map((p: any) => ({
-					id: Date.now().toString() + Math.random(),
+					id: p.id || Date.now().toString(),
 					text: p.text,
 					from: p.from,
 				}));
 				setAllSubmittedPrompts((prev) => [...prev, ...received]);
 			}
+
 			if (msg.type === "ROOM_STATE") {
 				setRoomInfo({
 					players: msg.players,
 					currentTurn: msg.currentTurn,
 				});
+			}
+			if (msg.type === "PROMPT_DELETED") {
+				setAllSubmittedPrompts((prev) =>
+					prev.filter((p) => p.id !== msg.promptId)
+				);
 			}
 			if (msg.type === "ERROR") {
 				toast.error(msg.message);
@@ -97,7 +110,6 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 				intent,
 			});
 			setHasJoined(true);
-
 			if (intent === "create") {
 				// Swap URL and internal state to `join` to avoid re-create on refresh
 				searchParams.set("intent", "join");
@@ -115,17 +127,18 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 		setSearchParams,
 	]);
 
+	// Clear state when roomId changes or when reconnecting
+	useEffect(() => {
+		setAllSubmittedPrompts([]);
+		setMyPrompts([]);
+		setRoomInfo(null);
+		setReadyCount(0);
+		setTotalPlayers(1);
+		setHasJoined(false);
+	}, [roomId]);
+
 	const handleSend = () => {
 		if (!input.trim()) return;
-
-		const promptObj: Prompt = {
-			id: Date.now().toString(),
-			text: input,
-			from: username,
-		};
-
-		setMyPrompts((prev) => [...prev, promptObj]);
-		setAllSubmittedPrompts((prev) => [...prev, promptObj]);
 
 		sendMessage({
 			type: "NEW_PROMPTS",
@@ -133,7 +146,20 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 			prompts: [input],
 		});
 
-		setInput("");
+		setInput(""); // clear input
+	};
+
+	const handleDeletePrompt = (promptId: string) => {
+		// Remove prompt from the local state (UI update)
+		setMyPrompts((prev) => prev.filter((p) => p.id !== promptId));
+		setAllSubmittedPrompts((prev) => prev.filter((p) => p.id !== promptId));
+
+		// Broadcast the deletion to the server
+		sendMessage({
+			type: "DELETE_PROMPT",
+			username,
+			promptId,
+		});
 	};
 
 	const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -165,7 +191,8 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 					<ul className="space-y-1 text-sm text-white list-disc list-inside">
 						{allSubmittedPrompts.map((p) => (
 							<li key={p.id}>
-								[{p.from}] {p.text}
+								[{p.from}] {p.text}{" "}
+								{/* Accessing the text properties correctly */}
 							</li>
 						))}
 					</ul>
@@ -184,7 +211,6 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 							></span>
 							<span>{connected ? "Connected" : "Disconnected"}</span>
 						</div>
-
 						<Button
 							variant="secondary"
 							onClick={() => navigate("/")}
@@ -217,6 +243,7 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 												setAllSubmittedPrompts((prev) =>
 													prev.filter((p) => p.id !== prompt.id)
 												);
+												handleDeletePrompt(prompt.id);
 											}}
 										>
 											&times;
@@ -228,9 +255,12 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 					)}
 
 					{messages.map((msg, idx) => {
-						if (["PROMPT_RECEIVED", "ROOM_STATE"].includes(msg.type))
+						if (
+							["PROMPT_RECEIVED", "ROOM_STATE", "PROMPT_DELETED"].includes(
+								msg.type
+							)
+						)
 							return null;
-
 						return (
 							<div key={idx} className="p-2 mb-2 text-sm bg-gray-700 rounded">
 								<p className="italic text-gray-400">[{msg.type}]</p>
