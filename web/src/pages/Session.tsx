@@ -34,7 +34,7 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 text-white p-4">
-      <div className="bg-gray-900 p-6 rounded-2xl shadow-xl w-full max-w-3xl">
+      <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-3xl">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold">Room: {roomId}</h2>
           <div className="flex items-center gap-2">
@@ -83,7 +83,7 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
             disabled={!connected}
           />
           <Button
-            variant="primary"
+            variant="secondary"
             onClick={handleSend}
             disabled={!connected}
           >

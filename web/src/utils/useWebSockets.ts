@@ -12,6 +12,7 @@ const useWebSocket = (roomId: string) => {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    // should be moved out of here!!!!
     const ws = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
 
     ws.onopen = () => {
