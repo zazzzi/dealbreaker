@@ -16,8 +16,10 @@ const useWebSocket = (
 	const [socket, setSocket] = useState<WebSocket | null>(null);
 	const [connected, setConnected] = useState(false);
 
+
 	useEffect(() => {
 		const ws = new WebSocket(`ws://localhost:8000/ws/${roomId}`);
+
 
 		ws.onopen = () => {
 			console.log(`✅ Connected to room: ${roomId}`);

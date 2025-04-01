@@ -13,6 +13,7 @@ interface Prompt {
 }
 
 const Session = ({ roomId: propRoomId }: { roomId: string }) => {
+
 	const { roomId: urlRoomId } = useParams();
 	const roomId = urlRoomId || propRoomId;
 	const navigate = useNavigate();
@@ -300,6 +301,7 @@ const Session = ({ roomId: propRoomId }: { roomId: string }) => {
 			</div>
 		</div>
 	);
+
 };
 
 export default Session;

@@ -4,6 +4,7 @@ import Button from "../components/ui/button";
 const LandingPage = () => {
 	const navigate = useNavigate();
 
+
 	const handleCreateSession = () => {
 		navigate("/create");
 	};
@@ -30,6 +31,7 @@ const LandingPage = () => {
 			</div>
 		</div>
 	);
+
 };
 
 export default LandingPage;
